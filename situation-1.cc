@@ -35,6 +35,9 @@
 #include "ns3/csma-module.h"
 
 #include "ns3/internet-module.h"
+//#include "ns3/wimax-module.h"
+
+#include "ns3/ppp-header.h"
 
 #define Infected_chance 10 //โอกาศติด 10%
 #define Save_pos 2
@@ -49,6 +52,9 @@ int infected_list[] = {
 
 using namespace ns3;
 
+NodeContainer c;
+NodeContainer c3;
+
 NS_LOG_COMPONENT_DEFINE("WifiSimpleAdhoc");
 
 AnimationInterface * pAnim = 0;
@@ -59,23 +65,7 @@ struct rgb {
     uint8_t b;
 };
 
-struct rgb colors[] = {
-    {
-        252,
-        44,
-        44
-    }, // ติดเชื้อ
-    {
-        127,
-        255,
-        46
-    }, // ลูกค้า
-    {
-        46,
-        131,
-        255
-    } // พ่อค้า
-};
+
 float speedLimit(float vector) {
 
     if (vector > 1) {
@@ -87,40 +77,106 @@ float speedLimit(float vector) {
 
 }
 
+//Ptr<Node> getNodeFromIP(Ipv4Address address) {
+////
+////	for(uint8_t i = 0; i < NodeList::GetNNodes(); i ++) {
+////
+////		Ptr<Node> node = NodeList::GetNode(i);
+////
+////		// compare node's ip address <=> with `address`; if true return node;
+////
+////		if (address == InetSocketAddress::ConvertFrom(node->GetDevice(0)->GetAddress()).GetIpv4()) {
+////			return node;
+////		}
+////
+////	}
+//
+////	for(uint8_t i = 0; i < c.GetN(); i++) {
+////		Ptr<Node> node = c.Get(i);
+////
+////		// compare node's ip address <=> with `address`; if true return node;
+////
+////		if (address == InetSocketAddress::ConvertFrom(node->GetDevice(1)->GetAddress()).GetIpv4()) {
+////			return node;
+////		}
+////	}
+//
+//	for(uint8_t i = 0; i < c3.GetN(); i++) {
+//		Ptr<Node> node = c3.Get(i);
+//
+//		if (address ==
+//				InetSocketAddress::ConvertFrom(node->GetDevice(1)->GetAddress()).GetIpv4()) {
+//			return node;
+//		}
+//	}
+//
+//	return NULL;
+//
+//}
+
 void ReceivePacket(Ptr < Socket > socket) {
 
-    while (socket -> Recv()) {
-        NS_LOG_UNCOND("Received one packet!");
-        Time currentTime = Simulator::Now();
+	Ptr<Packet> receivedPacket = socket->Recv();
 
+    while (receivedPacket) {
+        Time currentTime = Simulator::Now();
+//        NS_LOG_UNCOND(currentTime.GetSeconds());
 
         Vector3D pos = socket->GetNode()->GetObject<MobilityModel>()->GetPosition();
-        double distance = sqrt(pow(pos.x, 2) + pow(pos.y, 2));
 
-        //duration time to infected ต้องหาข้อมูลมาเเก้
-        if (currentTime.GetSeconds() >= 10) {
-			if (distance > 100) {
+//        Ptr<Packet> copy = receivedPacket->Copy();
 
-				pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 0, 255);
-	//        	NS_LOG_UNCOND(distance);
+//        std::cout << copy->ToString() << std::endl;
+
+//        Ipv4Header iph;
+//        if(copy->RemoveHeader(iph) > 0) {
+
+//        	std::cout << "Yes!" << std::endl;
+
+        	Ptr<Node> sourceNode = c3.Get(1); // todo
+
+			if(sourceNode == NULL) {
+				receivedPacket = socket->Recv();
+				continue;
 			}
-			else if (distance > 80) {
-				pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 170, 255);
-	//        	NS_LOG_UNCOND(distance);
-			 }
-			else if (distance > 50) {
-				pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 255, 255);
-	//        	NS_LOG_UNCOND(distance);
+
+			Vector sourcePos = sourceNode->GetObject<MobilityModel>()->GetPosition();
+
+			double distance = abs(sqrt(pow(sourcePos.x - pos.x, 2) + pow(sourcePos.y - pos.y, 2)));
+
+			//duration time to infected ต้องหาข้อมูลมาเเก้
+			if (currentTime.GetSeconds() >= 10) {
+				if (distance <= 10) {
+					//random infected -> color red
+					pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 0, 255); //high
+		//        	NS_LOG_UNCOND(distance);
+				}
+				else if (distance <= 50) {
+					pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 170, 255); //medium
+		//        	NS_LOG_UNCOND(distance);
+				 }
+				else if (distance <= 100) {
+					pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 255, 255); //low
+		//        	NS_LOG_UNCOND(distance);
+				}
 			}
-        }
+
+//			pAnim -> UpdateNodeColor(socket -> GetNode(), 0, 0, 255);
+
+
+			NS_LOG_UNCOND(distance);
+
+//        }
+
+        receivedPacket = socket->Recv();
+
+	}
+
+//		Simulator::Schedule(Seconds(1), & ReceivePacket, socket);
 
 
 
 
-		NS_LOG_UNCOND(distance);
-		Simulator::Schedule(Seconds(1), & ReceivePacket, socket);
-
-    }
 
     //  Time currentTime = Simulator::Now();
     //  Vector currentPos = mob->GetPosition();
@@ -136,7 +192,9 @@ void ReceivePacket(Ptr < Socket > socket) {
 static void GenerateTraffic(Ptr < Socket > socket, uint32_t pktSize,
     uint32_t pktCount, Time pktInterval) {
     if (pktCount > 0) {
-        socket -> Send(Create < Packet > (pktSize));
+    	auto ph = Create < Packet > (pktSize);
+
+        socket -> Send(ph);
         Simulator::Schedule(pktInterval, & GenerateTraffic,
             socket, pktSize, pktCount - 1, pktInterval);
     } else {
@@ -189,7 +247,7 @@ void StudentMobility(Ptr < RandomWalk2dMobilityModel > mob) {
         mob -> SetPosition(Vector(currentPos.x + 2.3, currentPos.y + 2.7, 0));
 
     }
-    else if (200 >= currentTime.GetSeconds() && currentTime.GetSeconds() >= 110) {
+    else if (240 >= currentTime.GetSeconds() && currentTime.GetSeconds() >= 150) {
 
     		mob -> SetPosition(Vector(currentPos.x - 1.5, currentPos.y - 1.9, 0));
 
@@ -208,8 +266,11 @@ void TeacherMobility(Ptr < RandomWalk2dMobilityModel > mob) {
 
     Vector currentPos = mob -> GetPosition();
 
-    if (currentTime.GetSeconds() <= 110) {
-        mob -> SetPosition(Vector(currentPos.x + 1, currentPos.y + 1, 0));
+    if (currentTime.GetSeconds() <= 80) {
+        mob -> SetPosition(Vector(currentPos.x + 1.5, currentPos.y + 1.2, 0));
+    }
+    else if (240 >= currentTime.GetSeconds() && currentTime.GetSeconds() >= 200) {
+    	mob -> SetPosition(Vector(currentPos.x - 3, currentPos.y - 1.5, 0));
     }
 
     //
@@ -226,16 +287,26 @@ void SetNodeColor(Ptr < Node > node, uint8_t r, uint8_t g, uint8_t b) {
 void SetNodeSize(uint32_t node, double width, double height) {
 
     pAnim -> UpdateNodeSize(node, width, height);
-
 }
 
+//void sentAllPacket(double pos){
+//
+//	NS_LOG_UNCOND(pos);
+//}
+
+void TeacherChangeColor (Ptr < Node > node, uint8_t r, uint8_t g, uint8_t b) {
+//	  Time currentTime = Simulator::Now();
+//	  if (180 >= currentTime.GetSeconds() >= 96) {
+		  pAnim -> UpdateNodeColor(node, r, g, b);
+//	  }
+}
 
 
 int main(int argc, char * argv[]) {
     std::string phyMode("DsssRate1Mbps");
     double rss = -80; // -dBm
     uint32_t packetSize = 1000; // bytes
-    uint32_t numPackets = 200;
+    uint32_t numPackets = 240;
     double interval = 1.0; // seconds
     bool verbose = false;
 
@@ -254,7 +325,6 @@ int main(int argc, char * argv[]) {
     Config::SetDefault("ns3::WifiRemoteStationManager::NonUnicastMode",
         StringValue(phyMode));
 
-    NodeContainer c;
     c.Create(10);
 
     NodeContainer c2;
@@ -262,7 +332,7 @@ int main(int argc, char * argv[]) {
     NodeContainer t2;
     t2.Create(2);
 
-    NodeContainer c3;
+//    NodeContainer c3;
     c3.Create(15);
 
     // The below set of helpers will help us to put together the wifi NICs we want
@@ -307,7 +377,7 @@ int main(int argc, char * argv[]) {
 
     MobilityHelper mobility2;
     mobility2.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
-        "X", DoubleValue(100.0),
+        "X", DoubleValue(70.0),
         "Y", DoubleValue(180.0),
         "Rho", StringValue("ns3::UniformRandomVariable[Min=15|Max=20]"));
     mobility2.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
@@ -320,7 +390,7 @@ int main(int argc, char * argv[]) {
 
     MobilityHelper mobilityT2;
     mobilityT2.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
-        "X", DoubleValue(100.0),
+        "X", DoubleValue(80.0),
         "Y", DoubleValue(180.0),
         "Rho", StringValue("ns3::UniformRandomVariable[Min=15|Max=20]"));
     mobilityT2.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
@@ -362,6 +432,16 @@ int main(int argc, char * argv[]) {
         Simulator::ScheduleWithContext(t2.Get(j) -> GetId(), Seconds(10), & TeacherMobility, mob);
 
         Simulator::Schedule(Seconds(1.f), & SetNodeColor, t2.Get(j), 0, 255, 0);
+        Simulator::Schedule(Seconds(96), & TeacherChangeColor, t2.Get(j), 0, 255, 255);
+//        Simulator::Schedule(Seconds(180), & TeacherChangeColor, t2.Get(j), 0, 255, 0);
+
+    }
+
+    for (uint j = 0; j < c2.GetN(); j++) {
+            Ptr < RandomWalk2dMobilityModel > mob = c2.Get(j) -> GetObject < RandomWalk2dMobilityModel > ();
+
+            Simulator::Schedule(Seconds(1.f), & SetNodeColor, c2.Get(j), 0, 255, 0);
+//            Simulator::Schedule(Seconds(235), & TeacherChangeColor, c2.Get(j), 0, 255, 255);
 
     }
 
@@ -390,12 +470,22 @@ int main(int argc, char * argv[]) {
     TypeId tid = TypeId::LookupByName("ns3::UdpSocketFactory");
 
 
-    for (int i = 0; i < 15; i++) {
-    	Ptr < Socket > recvSink = Socket::CreateSocket(c3.Get(i), tid);
+//    Ptr<MobilityModel> pos = c3.Get(3)->GetObject<MobilityModel>();
+//    double x = pos->GetPosition().x;
+//    NS_LOG_UNCOND("pos in main");
+
+//    Vector3D pos = c3.Get(1)->GetObject<MobilityModel>()->GetPosition();
+//    if (x <= 152.609){
+    	for (int i = 0; i < 15; i++) {
+    		Ptr < Socket > recvSink = Socket::CreateSocket(c3.Get(i), tid);
     		InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
     		recvSink -> Bind(local);
     		recvSink -> SetRecvCallback(MakeCallback( & ReceivePacket));
-    }
+
+//    		sentAllPacket(c3.Get(i)->GetObject<MobilityModel>()->GetPosition().x);
+    	}
+//    }
+
 
     for (int i = 0; i < 10; i++) {
        	Ptr < Socket > recvSink = Socket::CreateSocket(c.Get(i), tid);
@@ -419,13 +509,13 @@ int main(int argc, char * argv[]) {
 
 
 
-
-
     Ptr < Socket > source = Socket::CreateSocket(c3.Get(1), tid);
 
     InetSocketAddress remote = InetSocketAddress(Ipv4Address("255.255.255.255"), 80);
     source -> SetAllowBroadcast(true);
     source -> Connect(remote);
+
+
 
 
     // Tracing
@@ -435,9 +525,17 @@ int main(int argc, char * argv[]) {
     // Output what we are doing
     NS_LOG_UNCOND("Testing " << numPackets << " packets sent with receiver rss " << rss);
 
+
     Simulator::ScheduleWithContext(source -> GetNode() -> GetId(),
         Seconds(0.5), & GenerateTraffic,
         source, packetSize, numPackets, interPacketInterval);
+//
+//    Simulator::Schedule (Seconds (0.00),
+//       [] ()
+//       {
+
+
+//       });
 
 
     //
@@ -447,7 +545,7 @@ int main(int argc, char * argv[]) {
 
     pAnim = new AnimationInterface("situation.xml");
 
-    Simulator::Stop(Seconds(200.0));
+    Simulator::Stop(Seconds(240.0));
 
     Simulator::Run();
     Simulator::Destroy();
